@@ -3,7 +3,7 @@
 """
 
 import re
-from html import escape
+from html import escape, unescape
 from html.parser import HTMLParser
 from typing import (
     Callable,
@@ -64,6 +64,9 @@ _MARKDOWN_RENDERER_RULES = cast(
     MutableMapping[str, _FenceRenderer], _MARKDOWN_RENDERER.rules
 )
 _DEFAULT_FENCE_RENDERER: _FenceRenderer = _MARKDOWN_RENDERER_RULES["fence"]
+_MARKDOWN_FILE_LINK = re.compile(
+    r"^([^:/?#\\][^:?#\\]*?)\.(?:md|markdown)(?=[?#]|$)", re.IGNORECASE
+)
 
 
 def _render_fence(
@@ -164,14 +167,29 @@ def _strip_dotdot_from_img_src(html: str) -> str:
 
 
 def _markdown_file_href(href: str) -> str:
-    match = re.match(
-        r"^([^:/?#\\][^:?#\\]*?)\.(?:md|markdown)(?=[?#]|$)",
-        href,
-        re.IGNORECASE,
-    )
+    match = _MARKDOWN_FILE_LINK.match(href)
     if match is None:
         return href
     return f"{match.group(1)}.html{href[match.end() :]}"
+
+
+def _rewrite_html_href(href: str) -> str:
+    characters: List[str] = []
+    source_spans: List[Tuple[int, int]] = []
+    for token_ in re.finditer(
+        r"&(?:#(?:[xX][0-9a-fA-F]+|[0-9]+);?|[a-zA-Z][a-zA-Z0-9]*;)|.",
+        href,
+        re.DOTALL,
+    ):
+        decoded = unescape(token_.group())
+        characters.append(decoded)
+        source_spans.extend([token_.span()] * len(decoded))
+    match = _MARKDOWN_FILE_LINK.match("".join(characters))
+    if match is None:
+        return href
+    start = source_spans[match.end(1)][0]
+    end = source_spans[match.end() - 1][1]
+    return f"{href[:start]}.html{href[end:]}"
 
 
 def _relative_autolink_rule(state: StateInline, silent: bool) -> bool:
@@ -206,32 +224,34 @@ class _MarkdownLinkRewriter(HTMLParser):
         self.replacements: List[Tuple[int, int, str]] = []
 
     def handle_starttag(
-        self, tag: str, attrs: List[Tuple[str, Optional[str]]]
+        self, tag: str, _attrs: List[Tuple[str, Optional[str]]]
     ) -> None:
         if tag != "a":
-            return
-        rewritten_attrs: List[str] = []
-        changed = False
-        for name_, value_ in attrs:
-            if value_ is None:
-                rewritten_attrs.append(name_)
-                continue
-            rewritten_value = value_
-            if name_ == "href":
-                rewritten_value = _markdown_file_href(value_)
-                changed = changed or rewritten_value != value_
-            rewritten_attrs.append(
-                f'{name_}="{escape(rewritten_value, quote=True)}"'
-            )
-        if not changed:
             return
         line, column = self.getpos()
         start = self.line_offsets[line - 1] + column
         original = self.get_starttag_text()
         assert original is not None
-        ending = "/>" if original.endswith("/>") else ">"
-        replacement = f"<a {' '.join(rewritten_attrs)}{ending}"
-        self.replacements.append((start, start + len(original), replacement))
+        for attribute_ in re.finditer(
+            r"""\s+([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?""",
+            original,
+        ):
+            if attribute_.group(1).lower() != "href":
+                continue
+            for group_ in (2, 3, 4):
+                value = attribute_.group(group_)
+                if value is None:
+                    continue
+                replacement = _rewrite_html_href(value)
+                self.replacements.append(
+                    (
+                        start + attribute_.start(group_),
+                        start + attribute_.end(group_),
+                        replacement,
+                    )
+                )
+                return
+            return
 
     def rewrite(self) -> str:
         self.feed(self.html)

@@ -165,13 +165,13 @@ def test_10_renders_two_inline_math_formulas_in_one_paragraph():
         (
             "<a class='nav' href='../other.MD?x=1&amp;y=2#section'>Other</a>",
             (
-                '<p><a class="nav" href="../other.html?x=1&amp;y=2#section">'
+                "<p><a class='nav' href='../other.html?x=1&amp;y=2#section'>"
                 "Other</a></p>\n"
             ),
         ),
         (
             "<a href=other.md>Other</a>",
-            '<p><a href="other.html">Other</a></p>\n',
+            "<p><a href=other.html>Other</a></p>\n",
         ),
         (
             (
@@ -179,13 +179,33 @@ def test_10_renders_two_inline_math_formulas_in_one_paragraph():
                 "Other</A>\n</div>\n"
             ),
             (
-                '<div>\n<a href="./other.html" title="A &quot;quote&quot;">'
+                '<div>\n<A\nHREF="./other.html" title="A &quot;quote&quot;">'
                 "Other</A>\n</div>\n"
             ),
         ),
         (
             "[Other][reference]\n\n[reference]: other.md\n",
             '<p><a href="other.html">Other</a></p>\n',
+        ),
+        (
+            '<a href="other.md?x=1&copy=2" title="&notit;">Other</a>',
+            '<p><a href="other.html?x=1&copy=2" title="&notit;">Other</a></p>\n',
+        ),
+        (
+            """<a title=' href="example.md"' href="other.md">Other</a>""",
+            """<p><a title=' href="example.md"' href="other.html">Other</a></p>\n""",
+        ),
+        (
+            '<a href="other.md&#35;section">Other</a>',
+            '<p><a href="other.html&#35;section">Other</a></p>\n',
+        ),
+        (
+            '<a href="Bob&#x27;s.md">Other</a>',
+            '<p><a href="Bob&#x27;s.html">Other</a></p>\n',
+        ),
+        (
+            '<a href="other&#46;md&#63;x=1&copy=2">Other</a>',
+            '<p><a href="other.html&#63;x=1&copy=2">Other</a></p>\n',
         ),
     ],
 )
@@ -212,6 +232,8 @@ def test_relative_markdown_links(markdown_input: str, expected: str) -> None:
         "other.pdf",
         "other.md.png",
         "other.html",
+        "https&colon;//example.com/other.md",
+        "&#47;&#47;example.com/other.md",
     ],
 )
 def test_non_relative_markdown_destinations_are_unchanged(
