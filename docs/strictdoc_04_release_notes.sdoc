@@ -50,6 +50,22 @@ releases:
 <<<
 
 [[SECTION]]
+MID: 73c3c7ed4cf848d1bce7945a9d411b07
+TITLE: Unreleased
+
+[TEXT]
+MID: b3b6e5b0c549429982513b170e64788b
+STATEMENT: >>>
+This release contains the following enhancements:
+
+1\) Markdown links such as ``<./other.md>`` and HTML anchors with relative
+Markdown destinations open the rendered HTML pages. This applies to static
+exports and the server, including links added or changed in the web editor.
+<<<
+
+[[/SECTION]]
+
+[[SECTION]]
 MID: 8a13de7253c14afb8dfc95f88948b22f
 TITLE: 0.30.1 (2026-09-15)
 

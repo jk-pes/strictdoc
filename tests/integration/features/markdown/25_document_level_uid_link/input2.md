@@ -4,6 +4,10 @@
 
 Read [LINK: DOC-1].
 
+<./input1.md#DOC-1>
+
+<a href="./input1.md#SEC-1">Section A</a>
+
 ## Section B
 
 **Type**: SECTION \

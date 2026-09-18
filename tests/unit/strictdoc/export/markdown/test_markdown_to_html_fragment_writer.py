@@ -1,3 +1,5 @@
+import pytest
+
 from strictdoc.backend.markdown.markdown_to_html_fragment_writer import (
     MarkdownToHtmlFragmentWriter,
 )
@@ -136,3 +138,123 @@ def test_10_renders_two_inline_math_formulas_in_one_paragraph():
         '<span class="math notranslate nohighlight">\\( m_p = 30\\,kg \\)</span>'
         in html_output
     )
+
+
+@pytest.mark.parametrize(
+    ("markdown_input", "expected"),
+    [
+        (
+            "<./other.md>",
+            '<p><a href="./other.html">./other.md</a></p>\n',
+        ),
+        (
+            "<../nested/other.markdown?view=1&mode=2#section>",
+            (
+                '<p><a href="../nested/other.html?view=1&amp;mode=2#section">'
+                "../nested/other.markdown?view=1&amp;mode=2#section</a></p>\n"
+            ),
+        ),
+        (
+            "[Other](<./other file.md#section>)",
+            '<p><a href="./other%20file.html#section">Other</a></p>\n',
+        ),
+        (
+            '<a href="./other.md">Other</a>',
+            '<p><a href="./other.html">Other</a></p>\n',
+        ),
+        (
+            "<a class='nav' href='../other.MD?x=1&amp;y=2#section'>Other</a>",
+            (
+                '<p><a class="nav" href="../other.html?x=1&amp;y=2#section">'
+                "Other</a></p>\n"
+            ),
+        ),
+        (
+            "<a href=other.md>Other</a>",
+            '<p><a href="other.html">Other</a></p>\n',
+        ),
+        (
+            (
+                '<div>\n<A\nHREF="./other.md" title="A &quot;quote&quot;">'
+                "Other</A>\n</div>\n"
+            ),
+            (
+                '<div>\n<a href="./other.html" title="A &quot;quote&quot;">'
+                "Other</A>\n</div>\n"
+            ),
+        ),
+        (
+            "[Other][reference]\n\n[reference]: other.md\n",
+            '<p><a href="other.html">Other</a></p>\n',
+        ),
+    ],
+)
+def test_relative_markdown_links(markdown_input: str, expected: str) -> None:
+    assert MarkdownToHtmlFragmentWriter().write(markdown_input) == expected
+    assert MarkdownToHtmlFragmentWriter.write_with_validation(
+        markdown_input
+    ) == (expected, None)
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "https://example.com/other.md",
+        "http://example.com/other.markdown#section",
+        "//example.com/other.md",
+        "/other.md",
+        "#other.md",
+        "?file=other.md",
+        "mailto:other.md",
+        "javascript:other.md",
+        "data:text/html,other.md",
+        r"..\other.md",
+        "other.pdf",
+        "other.md.png",
+        "other.html",
+    ],
+)
+def test_non_relative_markdown_destinations_are_unchanged(
+    destination: str,
+) -> None:
+    markdown_input = f'<a href="{destination}">Other</a>'
+    assert MarkdownToHtmlFragmentWriter().write(markdown_input) == (
+        f"<p>{markdown_input}</p>\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("markdown_input", "expected"),
+    [
+        ("`<./other.md>`", "<p><code>&lt;./other.md&gt;</code></p>\n"),
+        (
+            '```\n<a href="./other.md">Other</a>\n<./other.md>\n```',
+            (
+                "<pre><code>&lt;a href=&quot;./other.md&quot;&gt;Other&lt;/a&gt;\n"
+                "&lt;./other.md&gt;\n</code></pre>\n"
+            ),
+        ),
+        (
+            "    <./other.md>\n",
+            "<pre><code>&lt;./other.md&gt;\n</code></pre>\n",
+        ),
+        (r"\<./other.md>", "<p>&lt;./other.md&gt;</p>\n"),
+        (
+            "![Image](./other.md)",
+            '<p><img src="./other.md" alt="Image"></p>\n',
+        ),
+        ("<a>link text</a>", "<p><a>link text</a></p>\n"),
+        (
+            '<a href="other.html"><./other.md></a>',
+            '<p><a href="other.html">&lt;./other.md&gt;</a></p>\n',
+        ),
+        (
+            '<!-- <a href="./other.md">Other</a> -->',
+            '<!-- <a href="./other.md">Other</a> -->',
+        ),
+    ],
+)
+def test_code_and_non_link_content_are_unchanged(
+    markdown_input: str, expected: str
+) -> None:
+    assert MarkdownToHtmlFragmentWriter().write(markdown_input) == expected

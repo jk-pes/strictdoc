@@ -5184,6 +5184,16 @@ types, metadata, and traceability relations.
 This section provides a short introduction. For custom node types, fields,
 grammars, and relations, see [LINK: SDOC_MARKDOWN_SPEC].
 
+Relative links to Markdown files point to their rendered HTML pages.
+Supported forms include:
+
+- ``<./other.md>``
+- ``[Other](./other.md)``
+- ``<a href="./other.md">Other</a>``
+
+The renderer preserves query strings and fragments. External URLs and links
+inside code examples remain unchanged.
+
 **1. Minimal example:**
 
 .. code-block:: markdown

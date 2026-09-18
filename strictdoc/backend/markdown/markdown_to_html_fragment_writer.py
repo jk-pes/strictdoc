@@ -4,7 +4,16 @@
 
 import re
 from html import escape
-from typing import Callable, MutableMapping, Optional, Sequence, Tuple, cast
+from html.parser import HTMLParser
+from typing import (
+    Callable,
+    List,
+    MutableMapping,
+    Optional,
+    Sequence,
+    Tuple,
+    cast,
+)
 
 import pygments
 from markdown_it import MarkdownIt
@@ -154,6 +163,89 @@ def _strip_dotdot_from_img_src(html: str) -> str:
     return re.sub(r'src="(\.\./[^"]*)"', _rebase, html)
 
 
+def _markdown_file_href(href: str) -> str:
+    match = re.match(
+        r"^([^:/?#\\][^:?#\\]*?)\.(?:md|markdown)(?=[?#]|$)",
+        href,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return href
+    return f"{match.group(1)}.html{href[match.end() :]}"
+
+
+def _relative_autolink_rule(state: StateInline, silent: bool) -> bool:
+    if state.src[state.pos] != "<" or state.linkLevel > 0:
+        return False
+    match = re.match(r"<([^<>\s]+)>", state.src[state.pos : state.posMax])
+    if match is None:
+        return False
+    destination = match.group(1)
+    if _markdown_file_href(destination) == destination:
+        return False
+    href = state.md.normalizeLink(destination)
+    if not state.md.validateLink(href):
+        return False
+    if not silent:
+        token = state.push("link_open", "a", 1)
+        token.attrs = {"href": href}
+        token = state.push("text", "", 0)
+        token.content = destination
+        state.push("link_close", "a", -1)
+    state.pos += len(match.group(0))
+    return True
+
+
+class _MarkdownLinkRewriter(HTMLParser):
+    def __init__(self, html: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self.html = html
+        self.line_offsets = [0]
+        for match_ in re.finditer("\n", html):
+            self.line_offsets.append(match_.end())
+        self.replacements: List[Tuple[int, int, str]] = []
+
+    def handle_starttag(
+        self, tag: str, attrs: List[Tuple[str, Optional[str]]]
+    ) -> None:
+        if tag != "a":
+            return
+        rewritten_attrs: List[str] = []
+        changed = False
+        for name_, value_ in attrs:
+            if value_ is None:
+                rewritten_attrs.append(name_)
+                continue
+            rewritten_value = value_
+            if name_ == "href":
+                rewritten_value = _markdown_file_href(value_)
+                changed = changed or rewritten_value != value_
+            rewritten_attrs.append(
+                f'{name_}="{escape(rewritten_value, quote=True)}"'
+            )
+        if not changed:
+            return
+        line, column = self.getpos()
+        start = self.line_offsets[line - 1] + column
+        original = self.get_starttag_text()
+        assert original is not None
+        ending = "/>" if original.endswith("/>") else ">"
+        replacement = f"<a {' '.join(rewritten_attrs)}{ending}"
+        self.replacements.append((start, start + len(original), replacement))
+
+    def rewrite(self) -> str:
+        self.feed(self.html)
+        self.close()
+        parts: List[str] = []
+        offset = 0
+        for start_, end_, replacement_ in self.replacements:
+            parts.append(self.html[offset:start_])
+            parts.append(replacement_)
+            offset = end_
+        parts.append(self.html[offset:])
+        return "".join(parts)
+
+
 class MarkdownToHtmlFragmentWriter:
     # Use the default preset to support common Markdown extensions such as
     # pipe tables when rendering HTML fragments.
@@ -161,6 +253,9 @@ class MarkdownToHtmlFragmentWriter:
     _MARKDOWN_RENDERER_RULES["fence"] = _render_fence
     _MARKDOWN_PARSER.inline.ruler.before(
         "backticks", "math_inline", _math_inline_rule
+    )
+    _MARKDOWN_PARSER.inline.ruler.before(
+        "autolink", "relative_autolink", _relative_autolink_rule
     )
     _MARKDOWN_RENDERER_RULES["math_inline"] = _render_math_inline
     _MARKDOWN_RENDERER_RULES["math_inline_double"] = _render_math_inline_double
@@ -170,9 +265,7 @@ class MarkdownToHtmlFragmentWriter:
 
     def write(self, markdown_fragment: str) -> Markup:
         assert isinstance(markdown_fragment, str), markdown_fragment
-        html = MarkdownToHtmlFragmentWriter.markdown_parser.render(
-            markdown_fragment
-        )
+        html = self._render(markdown_fragment)
         if self.flat_assets:
             html = _strip_dotdot_from_img_src(html)
         return Markup(html)
@@ -183,9 +276,7 @@ class MarkdownToHtmlFragmentWriter:
     ) -> Tuple[Optional[str], Optional[str]]:
         assert isinstance(markdown_fragment, str), markdown_fragment
         return (
-            MarkdownToHtmlFragmentWriter.markdown_parser.render(
-                markdown_fragment
-            ),
+            MarkdownToHtmlFragmentWriter._render(markdown_fragment),
             None,
         )
 
@@ -194,3 +285,10 @@ class MarkdownToHtmlFragmentWriter:
         return (
             f'<a href="{escape(href, quote=True)}">🔗&nbsp;{escape(title)}</a>'
         )
+
+    @staticmethod
+    def _render(markdown_fragment: str) -> str:
+        html = MarkdownToHtmlFragmentWriter.markdown_parser.render(
+            markdown_fragment
+        )
+        return _MarkdownLinkRewriter(html).rewrite()
